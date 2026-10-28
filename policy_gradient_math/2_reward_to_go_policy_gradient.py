@@ -6,7 +6,7 @@
 
 import numpy as np
 
-from policy_gradient_core import PolicyGradient, run
+from policy_gradient_math.policy_gradient_core import PolicyGradient, run
 
 
 class RewardToGoPolicyGradient(PolicyGradient):

@@ -3,7 +3,7 @@
 权重只和"这一局总共拿多少分"有关，和该 step 在轨迹里的位置无关。
 """
 
-from policy_gradient_core import PolicyGradient, run
+from policy_gradient_math.policy_gradient_core import PolicyGradient, run
 
 
 class SimplestPolicyGradient(PolicyGradient):
