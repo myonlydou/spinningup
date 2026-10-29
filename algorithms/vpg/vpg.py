@@ -1,3 +1,6 @@
+import csv
+from pathlib import Path
+
 import torch
 import numpy as np
 import gymnasium as gym
@@ -245,11 +248,11 @@ class VanillaPolicyGradient:
         return ep_ret, ep_len
 
 
-def run_vpg(epochs=50):
-    import time
+def run_vpg(epochs=50, save=None):
+    """命令行入口：训练若干个 epoch，可选把每轮统计量存成 CSV，最后渲染一局。"""
     import argparse
+    import time
 
-    """命令行入口：训练若干个 epoch，再渲染一局看看效果。"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_name", "--env", type=str, default="HalfCheetah-v5")
     parser.add_argument("--epochs", type=int, default=epochs)
@@ -262,6 +265,15 @@ def run_vpg(epochs=50):
     parser.add_argument("--hidden", type=int, default=64)
     parser.add_argument("--layers", type=int, default=2)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--save",
+        "-s",
+        nargs="?",
+        const="auto",
+        default=save,
+        help="把每轮统计量存成 CSV；只写 --save 不给路径时存到 "
+        "data/vpg_<env>_seed<seed>.csv",
+    )
     args = parser.parse_args()
 
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -281,23 +293,63 @@ def run_vpg(epochs=50):
         seed=args.seed,
     )
 
+    # 统计量要落盘时，先确定路径（auto 表示按环境和种子自动命名）
+    csv_path = None
+    if args.save is not None:
+        if args.save == "auto":
+            csv_path = Path("data") / f"vpg_{args.env_name}_seed{args.seed}.csv"
+        else:
+            csv_path = Path(args.save)
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+
     start = time.time()
-    for epoch in range(1, args.epochs + 1):
-        stats = agent.train_one_epoch()
-        print(
-            "epoch: %3d'th \t return: %6.1f \t ep_len: %5.1f \t "
-            "loss_pi: %+8.3f \t loss_v: %8.3f \t kl: %+7.4f \t ent: %.3f \t %.1fs"
-            % (
-                epoch,
-                stats["ep_ret"],
-                stats["ep_len"],
-                stats["loss_pi"],
-                stats["loss_v"],
-                stats["kl"],
-                stats["ent"],
-                time.time() - start,
+    csv_file, writer = None, None
+    try:
+        for epoch in range(1, args.epochs + 1):
+            stats = agent.train_one_epoch()
+            print(
+                "epoch: %3d'th \t return: %6.1f \t ep_len: %5.1f \t "
+                "loss_pi: %+8.3f \t loss_v: %8.3f \t kl: %+7.4f \t ent: %.3f \t %.1fs"
+                % (
+                    epoch,
+                    stats["ep_ret"],
+                    stats["ep_len"],
+                    stats["loss_pi"],
+                    stats["loss_v"],
+                    stats["kl"],
+                    stats["ent"],
+                    time.time() - start,
+                )
             )
-        )
+
+            if csv_path is not None:
+                # 列名取自第一轮的 stats，避免以后加指标时忘了同步表头
+                row = {"epoch": epoch, **{k: float(v) for k, v in stats.items()}}
+                if writer is None:
+                    preferred = [
+                        "ep_ret",
+                        "ep_len",
+                        "loss_pi",
+                        "loss_v",
+                        "delta_loss_v",
+                        "kl",
+                        "ent",
+                    ]
+                    fields = ["epoch"]
+                    fields += [k for k in preferred if k in row]
+                    fields += [k for k in row if k not in fields]
+                    csv_file = open(csv_path, "w", newline="", encoding="utf-8")
+                    writer = csv.DictWriter(csv_file, fieldnames=fields)
+                    writer.writeheader()
+                writer.writerow(row)
+                if csv_file is not None:
+                    csv_file.flush()  # 中途 Ctrl-C 也能留下已经跑完的轮次
+    finally:
+        if csv_file is not None:
+            csv_file.close()
+
+    if csv_path is not None:
+        print(f"统计量已保存: {csv_path}")
 
     ret, ep_len = agent.play()
 
